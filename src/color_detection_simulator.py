@@ -48,7 +48,7 @@ class ColorDetectionSimulator(Node):
         timer_period = 1.0 / max(self.detection_frequency, 0.1)
         self.timer = self.create_timer(timer_period, self.publish_simulated)
 
-        # Simulation state — persistent "objects" that drift around the frame
+        # Simulation state: persistent "objects" that drift around the frame
         self.objects = []
         self.frame_count = 0
         self.start_time = time.time()

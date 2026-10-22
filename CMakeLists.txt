@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.8)
-project(dexi_color_detection)
+project(dexi_vision)
 
 if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
   add_compile_options(-Wall -Wextra -Wpedantic)
@@ -15,6 +15,7 @@ find_package(std_msgs REQUIRED)
 install(PROGRAMS
   src/color_detection_node.py
   src/color_detection_simulator.py
+  src/bar_counter_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

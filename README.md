@@ -1,98 +1,48 @@
-# dexi_color_detection
+# dexi_vision
 
-HSV color detection ROS2 package for DEXI. Subscribes to compressed camera images and publishes color detections that can be consumed by Python scripts, Node-RED flows, or any ROS2 subscriber.
+Basic OpenCV vision nodes for DEXI. Each node subscribes to the camera on
+`/cam0/image_raw/compressed` and publishes what it finds, so it can be used from
+Node-RED via rosbridge, from Python, or from any ROS 2 subscriber.
 
-## Topics
+| Node | Publishes | What it finds | Docs |
+|---|---|---|---|
+| `color_detection_node.py` | `/color_detections` | Colored regions (HSV ranges) | [docs/color-detection.md](docs/color-detection.md) |
+| `bar_counter_node.py` | `/bar_detections` | White bars in a black disc: `bars_0` to `bars_3` | [docs/bar-counter.md](docs/bar-counter.md) |
 
-| Topic | Type | Direction | Description |
-|-------|------|-----------|-------------|
-| `/cam0/image_raw/compressed` | `sensor_msgs/CompressedImage` | Subscribe | Camera input |
-| `/color_detections` | `dexi_interfaces/ColorDetectionArray` | Publish | Detected colors with bounding boxes |
-| `/color_detections/image/compressed` | `sensor_msgs/CompressedImage` | Publish | Annotated camera image |
-
-## Quick Start
+## Quick start
 
 ```bash
-# Run the detection node (requires camera publishing on /cam0/image_raw/compressed)
-ros2 launch dexi_color_detection color_detection_launch.py
-
-# Or run the simulator (no camera needed, publishes fake detections)
-ros2 launch dexi_color_detection color_detection_sim_launch.py
-
-# Monitor detections
+ros2 launch dexi_vision color_detection_launch.py
 ros2 topic echo /color_detections
+
+ros2 launch dexi_vision bar_counter_launch.py
+ros2 topic echo /bar_detections
 ```
 
-## ColorDetection Message
+## Bar counter
 
-Each detection contains:
+`/bar_detections` uses `dexi_interfaces/msg/YoloDetectionArray`, the same message
+as `/yolo_detections`. `class_name` is one of:
 
-```
-string color_name     # "red", "blue", "green", etc.
-float32 confidence    # 0.0 to 1.0
-float32[4] bbox       # [x1, y1, x2, y2] normalized 0-1
-float32 center_x      # Center of detection, normalized
-float32 center_y      # Center of detection, normalized
-uint32 pixel_count    # Contour area in pixels
-```
+| class_name | Sees |
+|---|---|
+| `bars_1` | 1 white bar in a black disc |
+| `bars_2` | 2 bars |
+| `bars_3` | 3 bars |
+| `bars_0` | plain black disc |
 
-## Node-RED
+Nothing is published when the disc cannot be read (too far, tilted, bars
+merged), so no message means "not sure", not `bars_0`. An answer is only
+published once it wins 3 of the last 5 frames. The node runs at 2 Hz by
+default and reads reliably from 0.5 to 1.0 m above a 3 in disc.
 
-With rosbridge running (`ros2 launch rosbridge_server rosbridge_websocket_launch.xml`):
+All thresholds are ROS parameters in `config/bar_counter_params.yaml`.
+[docs/bar-counter.md](docs/bar-counter.md) walks through each step with pictures.
 
-1. Add a **ros2-subscriber** node, set topic to `/color_detections`
-2. Parse `msg.payload.detections[0].color_name` in a function node
-3. Call `/dexi/led_service/set_led_ring_color` or trigger any other action
-
-See `examples/node_red/color_to_led_flow.json` for an importable flow.
-
-## Python Examples
+To test on still images without ROS:
 
 ```bash
-# Set LED to match detected color
-python3 examples/python/color_led_mission.py
-
-# Print detections to console
-python3 examples/python/color_subscriber.py
-
-# Fly toward a colored target
-python3 examples/python/color_flight_mission.py --color red
-```
-
-## Parameters
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `detection_frequency` | `5.0` | Hz — detection rate |
-| `min_contour_area` | `500` | Minimum pixel area to count as detection |
-| `max_detections` | `10` | Max detections per frame |
-| `publish_annotated_image` | `true` | Publish annotated image feed |
-| `colors.<name>.h_min/h_max` | varies | HSV hue range |
-| `colors.<name>.s_min/s_max` | varies | HSV saturation range |
-| `colors.<name>.v_min/v_max` | varies | HSV value range |
-| `colors.<name>.enabled` | `true` | Enable/disable this color |
-
-## Adding Custom Colors
-
-Add to `config/color_detection_params.yaml`:
-
-```yaml
-colors:
-  purple:
-    h_min: 130
-    h_max: 145
-    s_min: 80
-    s_max: 255
-    v_min: 50
-    v_max: 255
-    enabled: true
-```
-
-Then launch with the config:
-
-```bash
-ros2 launch dexi_color_detection color_detection_launch.py \
-    --ros-args --params-file config/color_detection_params.yaml
+python3 test/check_images.py test/images/*.jpg
 ```
 
 ## Dependencies
@@ -103,3 +53,5 @@ ros2 launch dexi_color_detection color_detection_launch.py \
 - `dexi_interfaces` (for `ColorDetection` / `ColorDetectionArray` messages)
 - `python3-opencv` (`cv2`)
 - `numpy`
+
+The bar counter was written by Aziz Beghdadi for the AVR 2026 bridge cups.

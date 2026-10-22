@@ -31,7 +31,7 @@ class ColorLedMission(Node):
 
         self._current_color = None
         self.set_led('white')
-        self.get_logger().info('Color LED Mission ready — watching /color_detections')
+        self.get_logger().info('Color LED Mission ready, watching /color_detections')
 
     def set_led(self, color):
         if color == self._current_color:
@@ -43,10 +43,10 @@ class ColorLedMission(Node):
 
     def on_detections(self, msg):
         if msg.detections:
-            # Use the largest detection (first one — sorted by area)
+            # Use the largest detection (the first one, sorted by area)
             color = msg.detections[0].color_name
             self.set_led(color)
-            self.get_logger().info(f'Detected {color} — LED set to {color}')
+            self.get_logger().info(f'Detected {color}, LED set to {color}')
         else:
             self.set_led('white')
 

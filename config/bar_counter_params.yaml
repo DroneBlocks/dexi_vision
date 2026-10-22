@@ -1,0 +1,17 @@
+# Defaults match the values declared in bar_counter_node.py.
+bar_counter_node:
+  ros__parameters:
+    detection_frequency: 2.0
+    min_disc_area: 800
+    core_gap: 50
+    min_ink_fraction: 0.02
+    min_bar_area_fraction: 0.004
+    bar_aspect_min: 1.2
+    min_circularity: 0.70
+    max_circularity: 1.05
+    max_bar_width_frac: 0.22
+    bar_width_ratio: 0.23
+    ink_tolerance: 0.55
+    vote_window: 5
+    vote_min: 3
+    verbose: false

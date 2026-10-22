@@ -4,14 +4,14 @@ Launch file for DEXI color detection node
 
 Usage:
     # Default (5 Hz, all colors enabled)
-    ros2 launch dexi_color_detection color_detection_launch.py
+    ros2 launch dexi_vision color_detection_launch.py
 
     # Custom frequency and contour threshold
-    ros2 launch dexi_color_detection color_detection_launch.py \
+    ros2 launch dexi_vision color_detection_launch.py \
         detection_frequency:=10.0 min_contour_area:=1000
 
     # Disable annotated image (saves CPU)
-    ros2 launch dexi_color_detection color_detection_launch.py \
+    ros2 launch dexi_vision color_detection_launch.py \
         publish_annotated_image:=false
 """
 
@@ -53,7 +53,7 @@ def generate_launch_description():
     )
 
     color_detection_node = Node(
-        package='dexi_color_detection',
+        package='dexi_vision',
         executable='color_detection_node.py',
         name='color_detection_node',
         output='screen',

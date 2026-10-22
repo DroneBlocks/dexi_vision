@@ -37,7 +37,7 @@ class ColorFlightMission(Node):
             10
         )
 
-        self.get_logger().info(f'Color Flight Mission ready — tracking "{target_color}"')
+        self.get_logger().info(f'Color Flight Mission ready, tracking "{target_color}"')
         self.get_logger().info('Will send velocity commands to center on target')
 
     def on_detections(self, msg):
@@ -55,7 +55,7 @@ class ColorFlightMission(Node):
         error_x = target.center_x - 0.5  # positive = target is right
         error_y = target.center_y - 0.5  # positive = target is below
 
-        # Simple proportional control — scale to low velocity
+        # Simple proportional control, scaled to low velocity
         # Positive fly_right = drone moves right, positive fly_forward = forward
         # Map camera x-error to left/right, camera y-error to up/down
         if abs(error_x) > 0.1:

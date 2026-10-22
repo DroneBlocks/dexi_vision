@@ -4,10 +4,10 @@ Launch file for the color detection simulator (no camera needed)
 
 Usage:
     # Default simulator
-    ros2 launch dexi_color_detection color_detection_sim_launch.py
+    ros2 launch dexi_vision color_detection_sim_launch.py
 
     # Faster with only certain colors
-    ros2 launch dexi_color_detection color_detection_sim_launch.py \
+    ros2 launch dexi_vision color_detection_sim_launch.py \
         detection_frequency:=5.0
 """
 
@@ -31,7 +31,7 @@ def generate_launch_description():
     )
 
     sim_node = Node(
-        package='dexi_color_detection',
+        package='dexi_vision',
         executable='color_detection_simulator.py',
         name='color_detection_simulator',
         output='screen',
@@ -48,7 +48,7 @@ def generate_launch_description():
             'DEXI Color Detection SIMULATOR\n',
             '=' * 60, '\n',
             'Publishing simulated detections to: /color_detections\n',
-            'No camera required — use for Node-RED / Python testing\n',
+            'No camera required. Use for Node-RED / Python testing\n',
             '\n',
             'Monitor:\n',
             '  ros2 topic echo /color_detections\n',
