@@ -19,6 +19,12 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+# Imported by bar_counter_node.py from the same directory.
+install(FILES
+  src/bar_counter.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 # Install launch files
 install(DIRECTORY
   launch

@@ -36,7 +36,9 @@ merged), so no message means "not sure", not `bars_0`. An answer is only
 published once it wins 3 of the last 5 frames. The node runs at 2 Hz by
 default and reads reliably from 0.5 to 1.0 m above a 3 in disc.
 
-All thresholds are ROS parameters in `config/bar_counter_params.yaml`.
+The computer vision is in `src/bar_counter.py`, which has no ROS imports; the node
+adds the topics and the vote. All thresholds are ROS parameters in
+`config/bar_counter_params.yaml`.
 [docs/bar-counter.md](docs/bar-counter.md) walks through each step with pictures.
 
 To test on still images without ROS:
