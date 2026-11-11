@@ -43,7 +43,7 @@ things:
 
 Green passed, red did not. Three circles are left, one per cup.
 
-> **Behind the scenes:** each shape's outline is a **contour**. Filling it in closes the holes the bars cut. Roundness is a **circularity** score: the shape's area divided by the area of a circle as wide as it is, so a perfect circle scores 1. "Darker than around it" compares the **median** brightness inside to a ring just outside.
+> **Behind the scenes:** each shape's outline is a **contour**. Filling it in closes the holes the bars cut. Roundness is a **circularity** score: the shape's area divided by the area of a circle as wide as it is, so a perfect circle scores 1, and it must be convex, so a ragged patch of shadow fails. "Darker than around it" compares the **median** brightness inside to the light part of a ring just outside (its 90th **percentile**), so a sticker with a thin white edge still passes on a dark floor. A shape cut off by the edge of the picture is skipped.
 
 **1c. Which circle is DEXI over?** DEXI is over the cup in the middle
 of the picture, so the circle closest to the center (the yellow cross) wins.
@@ -82,7 +82,8 @@ are sideways.
 Counting shapes can be fooled. If the camera is tilted, two bars can blur
 together into one fat shape. So the computer checks a second way: it adds up
 all the white pixels and asks "is that about how much white 2 bars should
-have?" If the two answers disagree, it says nothing rather than guess.
+have?" One bar's worth of white comes from the bars in the picture, so thick
+and thin bar artwork both work. If the two answers disagree, it says nothing rather than guess.
 
 > **Behind the scenes:** checking one answer with a second, independent measurement is a common trick in engineering. Here the second measurement is **pixel area**.
 

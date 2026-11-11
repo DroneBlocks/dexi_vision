@@ -61,7 +61,7 @@ def main(src, outdir):
 
     # 2-3. bars inside the chosen disc, zoomed in
     cx, cy, r = int(best.cx), int(best.cy), int(best.r)
-    bars, searched = counter.bar_pixels(gray, cx, cy, r)
+    bars, searched = counter.bar_pixels(gray, cx, cy, r, best.contour)
 
     s = int(r * 1.5)
     x0, y0 = max(0, cx - s), max(0, cy - s)

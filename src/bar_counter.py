@@ -22,6 +22,8 @@ BLUR = (5, 5)
 SQUARE_BBOX = (0.7, 1.45)
 # Ring sampled around a disc to judge contrast, in disc radii.
 RING = (1.05, 1.4)
+# Percentile of the ring taken as "the surface around the disc".
+RING_LIGHT = 90
 # Bars are looked for inside this fraction of the disc radius, clear of the rim.
 INNER = 0.88
 
@@ -32,12 +34,13 @@ class Params:
     min_disc_area: int = 800
     min_circularity: float = 0.70
     max_circularity: float = 1.05
+    min_solidity: float = 0.9
     core_gap: int = 50
     min_ink_fraction: float = 0.02
     min_bar_area_fraction: float = 0.004
     bar_aspect_min: float = 1.2
+    min_bar_length_frac: float = 0.3
     max_bar_width_frac: float = 0.22
-    bar_width_ratio: float = 0.23
     ink_tolerance: float = 0.55
 
 
@@ -124,18 +127,32 @@ class BarCounter:
         # a filled square, so the upper bound rejects dark rectangles such as
         # a floor region.
         circularity = m["m00"] / (math.pi * r * r)
-        ok = (SQUARE_BBOX[0] < w / h < SQUARE_BBOX[1]
+        # A shape cut off by the frame edge is not a whole disc. This also
+        # drops a dark floor or mat that fills the frame, which can otherwise
+        # pass as a round disc nearest the center.
+        H, W = value.shape
+        inside_frame = bx > 0 and by > 0 and bx + w < W and by + h < H
+        # A printed disc is convex, even where a cup wall hides part of it;
+        # a ragged patch of shadow or grass is not.
+        solidity = m["m00"] / max(1.0, cv2.contourArea(cv2.convexHull(contour)))
+        ok = (inside_frame
+              and solidity >= self.p.min_solidity
+              and SQUARE_BBOX[0] < w / h < SQUARE_BBOX[1]
               and self.p.min_circularity <= circularity <= self.p.max_circularity
               and self.stands_out(value, value[by:by + h, bx:bx + w][filled > 0], cx, cy, r))
         return Disc(cx, cy, r, contour, ok)
 
     def stands_out(self, value, inside, cx, cy, r):
         """
-        True if the disc is clearly darker than a ring around it.
+        True if the disc is clearly darker than the light part of a ring
+        around it.
 
         A printed disc is black on a lighter surface; a soft shadow is not.
-        Judged on value rather than gray, so a saturated color such as red,
-        which is dark in gray, does not pass.
+        The ring's 90th percentile is used, not its median: a sticker cut out
+        of white paper and set on a dark mat or floor has only a thin light
+        rim, and the dark ground beyond it fills most of the ring. Judged on
+        value rather than gray, so a saturated color such as red, which is
+        dark in gray, does not pass.
         """
         R = int(r * RING[1])
         x0, y0 = max(0, int(cx) - R), max(0, int(cy) - R)
@@ -145,7 +162,7 @@ class BarCounter:
         cv2.circle(ring, center, R, 1, -1)
         cv2.circle(ring, center, int(r * RING[0]), 0, -1)
         around = window[ring > 0]
-        return around.size > 0 and np.median(around) - np.median(inside) >= self.p.core_gap
+        return around.size > 0 and np.percentile(around, RING_LIGHT) - np.median(inside) >= self.p.core_gap
 
     def nearest_disc(self, gray, value):
         """
@@ -160,10 +177,22 @@ class BarCounter:
         return min(ok, key=lambda d: math.hypot(d.cx - W / 2, d.cy - H / 2), default=None)
 
     # -- steps 2 to 4: the bars --------------------------------------------
-    def bar_pixels(self, gray, cx, cy, r):
+    def bar_pixels(self, gray, cx, cy, r, contour=None):
         """The bright pixels inside the disc, and how many pixels were searched."""
         inner = np.zeros(gray.shape, np.uint8)
         cv2.circle(inner, (cx, cy), int(r * INNER), 1, -1)
+        if contour is not None:
+            # Only inside the disc's outline, pulled in from its edge. When a
+            # cup wall hides part of the disc, the circle alone reaches past the
+            # black and picks up slivers of the bright rim beyond it. The convex
+            # hull, not the outline itself: a bar that runs out to the hidden
+            # edge cuts a notch in the outline, and the hull keeps that bar.
+            disc = np.zeros(gray.shape, np.uint8)
+            cv2.drawContours(disc, [cv2.convexHull(contour)], -1, 1, -1)
+            e = max(1, int(r * 0.06))
+            inner &= cv2.erode(disc, np.ones((2 * e + 1, 2 * e + 1), np.uint8))
+            if not inner.any():
+                return inner, 0
         inside = gray[inner > 0]
         t, _ = cv2.threshold(inside, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
         # On a blank disc Otsu splits camera noise, so a bar pixel must also be
@@ -187,7 +216,7 @@ class BarCounter:
         bbox = (max(0.0, (cx - r) / W), max(0.0, (cy - r) / H),
                 min(1.0, (cx + r) / W), min(1.0, (cy + r) / H))
 
-        bars, searched = self.bar_pixels(gray, cx, cy, r)
+        bars, searched = self.bar_pixels(gray, cx, cy, r, disc.contour)
         if searched < 50:
             return Reading(None, 0.0, None, "disc too small")
         ink = bars.sum() / searched
@@ -200,13 +229,13 @@ class BarCounter:
         max_width = 2 * r * self.p.max_bar_width_frac
         for _center, (d1, d2), _angle in self.bar_shapes(bars, searched):
             width, length = min(d1, d2), max(d1, d2)
-            if length < width * self.p.bar_aspect_min:
+            if length < width * self.p.bar_aspect_min or length < 2 * r * self.p.min_bar_length_frac:
                 continue
             if width > max_width:
                 # Wider than any single bar: the bars have merged, usually
                 # from tilt. Abstain rather than report one wide bar.
                 return Reading(None, 0.0, bbox, f"shape {width:.0f}px wide, bars merged")
-            widths.append(round(width))
+            widths.append(width)
             lengths.append(length)
 
         k = len(widths)
@@ -215,11 +244,11 @@ class BarCounter:
 
         # Total bar area grows with the bar count however the shapes split, so
         # it catches merges and splits the shape count misses. One bar's area
-        # comes from the longest bar (printed bars are 0.23 as wide as long),
-        # not from the disc, whose visible size shrinks when a cup wall hides
-        # its rim.
-        longest = max(lengths)
-        k_area = bars.sum() / (self.p.bar_width_ratio * longest * longest)
+        # is the median bar width times the longest bar, both measured in this
+        # frame, so wide and thin bar artwork both work. The disc is not used:
+        # its visible size shrinks when a cup wall hides its rim.
+        one_bar = float(np.median(widths)) * max(lengths)
+        k_area = bars.sum() / max(1.0, one_bar)
         if abs(k_area - k) > self.p.ink_tolerance:
             return Reading(None, 0.0, bbox, f"{k} shapes but area says {k_area:.1f} bars")
 
@@ -228,4 +257,4 @@ class BarCounter:
         if k > 1:
             spread = float(np.std(widths)) / max(1.0, float(np.mean(widths)))
             conf = max(0.40, min(0.95, 0.95 - spread))
-        return Reading(f"bars_{k}", conf, bbox, f"{k} bars, widths {sorted(widths)}, r {r}px")
+        return Reading(f"bars_{k}", conf, bbox, f"{k} bars, widths {sorted(round(w) for w in widths)}, r {r}px")
