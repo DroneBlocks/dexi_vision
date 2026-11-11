@@ -7,8 +7,10 @@ bar_counter_node:
     min_ink_fraction: 0.02
     min_bar_area_fraction: 0.004
     bar_aspect_min: 1.2
+    min_bar_length_frac: 0.3
     min_circularity: 0.70
     max_circularity: 1.05
+    min_solidity: 0.9
     max_bar_width_frac: 0.22
     ink_tolerance: 0.55
     vote_window: 5
