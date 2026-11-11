@@ -182,11 +182,13 @@ class BarCounter:
         inner = np.zeros(gray.shape, np.uint8)
         cv2.circle(inner, (cx, cy), int(r * INNER), 1, -1)
         if contour is not None:
-            # Only inside the disc's own outline, pulled in from its edge. When
-            # a cup wall hides part of the disc, the circle alone reaches past
-            # the black and picks up slivers of the bright rim beyond it.
+            # Only inside the disc's outline, pulled in from its edge. When a
+            # cup wall hides part of the disc, the circle alone reaches past the
+            # black and picks up slivers of the bright rim beyond it. The convex
+            # hull, not the outline itself: a bar that runs out to the hidden
+            # edge cuts a notch in the outline, and the hull keeps that bar.
             disc = np.zeros(gray.shape, np.uint8)
-            cv2.drawContours(disc, [contour], -1, 1, -1)
+            cv2.drawContours(disc, [cv2.convexHull(contour)], -1, 1, -1)
             e = max(1, int(r * 0.06))
             inner &= cv2.erode(disc, np.ones((2 * e + 1, 2 * e + 1), np.uint8))
             if not inner.any():
