@@ -50,7 +50,7 @@ class BarCounterNode(Node):
         self.votes = deque(maxlen=self.get_parameter("vote_window").value)
         self.vote_min = self.get_parameter("vote_min").value
         self.verbose = self.get_parameter("verbose").value
-        self.last_t = 0.0
+        self.next_t = 0.0  # time the next frame is due (see cb)
 
         self.pub = self.create_publisher(YoloDetectionArray, "/bar_detections", 10)
         self.create_subscription(CompressedImage, "/cam0/image_raw/compressed", self.cb, 10)
@@ -58,9 +58,15 @@ class BarCounterNode(Node):
 
     def cb(self, msg):
         now = self.get_clock().now().nanoseconds / 1e9
-        if now - self.last_t < self.min_interval:
+        if now < self.next_t:
             return
-        self.last_t = now
+        # Fixed schedule, not "interval since the last frame used": on a throttled input
+        # (a frame every 1/6 s, say) the old rule ran ~7% below detection_frequency.
+        # After a stall, restart the schedule.
+        if now - self.next_t < self.min_interval:
+            self.next_t += self.min_interval
+        else:
+            self.next_t = now + self.min_interval
 
         bgr = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)
         if bgr is None:
