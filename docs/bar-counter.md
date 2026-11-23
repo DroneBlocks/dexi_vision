@@ -87,6 +87,25 @@ and thin bar artwork both work. If the two answers disagree, it says nothing rat
 
 > **Behind the scenes:** checking one answer with a second, independent measurement is a common trick in engineering. Here the second measurement is **pixel area**.
 
+## The other way in: bars first
+
+On the real field the sticker sits inside a clear cup on a black bridge. The
+black circle is the same black as the bridge, so Step 1 cannot find it. The
+bars are still bright, so the computer also tries it the other way round:
+
+- Find every bright, thin shape that is brighter than the area right around it.
+- Join shapes that lie side by side, parallel and the same size. A group of
+  1, 2 or 3 is a possible sticker.
+- Keep a group only if the ground just around it is dark and smooth, with no
+  other bright bits. A white airplane on the grass fails this: its wings are
+  bright bits, and grass is not smooth.
+
+Both ways run on every picture. If they look at the same cup and disagree, it
+says nothing. A cup far from the middle of the picture is ignored: DEXI hovers
+over the cup it is reading, so a cup near the edge is a neighbor.
+
+> **Behind the scenes:** "brighter than the area around it" is **adaptive thresholding**: each pixel gets its own cut-off from its neighbors, so it works in sun and shade. Blank cups on the field show no black circle, so this way never says `bars_0`.
+
 ## Step 5: vote
 
 One picture can be blurry, so DEXI does not trust just one. It keeps the
@@ -102,6 +121,7 @@ The answer goes out on the ROS topic `/bar_detections` as `bars_1`, `bars_2`,
 ## When it says nothing
 
 If DEXI is too high (above about 1.25 m), the circle is too small to read.
+If the cup is not near the middle of the picture, it waits.
 If the bars blur together, or the steps disagree, it also says nothing. No
 answer means "I am not sure", which is different from `bars_0`, "I see a
 blank circle".
