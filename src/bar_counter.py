@@ -1,11 +1,19 @@
 """
-Count the white bars inside a black disc.
+Count the white bars on a bridge cup sticker.
 
 The computer vision behind bar_counter_node.py, with no ROS imports, so the
 tests and the doc figures run the same code the node does.
 
     reading = BarCounter().read(bgr)
     reading.label        # bars_1, bars_2, bars_3, bars_0, or None when unsure
+
+Two ways in, run on every frame:
+
+- disc first: find a black disc that stands out from a lighter surface, then
+  count the bars inside it. Works on printed stickers on a bench or floor.
+- bars first: find groups of bright, thin, parallel bars on dark ground. On
+  the real field the sticker sits in a clear cup on a black bridge, so the
+  disc is the same black as the bridge and cannot be found by darkness.
 
 Plain OpenCV, no trained model. The disc images differ only in a few thin
 white bars, which a detector like YOLO tends to confuse; counting the bars
@@ -26,6 +34,22 @@ RING = (1.05, 1.4)
 RING_LIGHT = 90
 # Bars are looked for inside this fraction of the disc radius, clear of the rim.
 INNER = 0.88
+# Bars first: neighborhood (px) a bar must outshine, and the shape limits for
+# one bar. The block is wider than a bar seen up close.
+BAR_BLOCK = 61
+BAR_MIN_LENGTH = 12
+BAR_MIN_ASPECT = 2.5
+BAR_MIN_FILL = 0.7
+# Bars of one sticker: parallel within this angle, similar in length and
+# width, side by side rather than end to end.
+GROUP_MAX_ANGLE = math.radians(15)
+GROUP_MIN_LENGTH_RATIO = 0.65
+GROUP_MIN_WIDTH_RATIO = 0.5
+GROUP_MAX_ALONG = 0.25
+GROUP_ACROSS = (1.5, 0.85)   # spacing: at least 1.5 widths, at most 0.85 lengths
+# Ground sampled around a bar group, in bar lengths past the group's edge.
+GROUND_RING = 0.2
+GROUND_DARK = 0.9            # fraction of that ring clearly darker than the bars
 
 
 @dataclass
@@ -42,6 +66,11 @@ class Params:
     min_bar_length_frac: float = 0.3
     max_bar_width_frac: float = 0.22
     ink_tolerance: float = 0.55
+    bar_contrast: int = 40
+    min_bar_level: int = 170
+    max_center_dist: float = 0.7
+    max_stray: float = 0.3
+    max_ring_std: float = 16.0
 
 
 @dataclass
@@ -69,9 +98,60 @@ def prepare(bgr):
     return gray, value
 
 
+@dataclass
+class Bar:
+    x: float
+    y: float
+    length: float
+    width: float
+    angle: float            # radians, along the bar
+    contour: np.ndarray
+
+
 class BarCounter:
     def __init__(self, params: Params = None):
         self.p = params or Params()
+
+    def read(self, bgr):
+        """
+        Read the cup nearest the frame center.
+
+        Both ways run. When they see the same cup and disagree, abstain. When
+        they see different cups, the one nearer the center is the cup under
+        the drone.
+        """
+        H, W = bgr.shape[:2]
+        a = self.off_center(self.read_disc_first(bgr), W, H)
+        b = self.read_bars_first(bgr)
+        if a.label is None:
+            return b
+        if b.label is None:
+            return a
+        (ax, ay), (bx, by) = self.center(a, W, H), self.center(b, W, H)
+        if math.hypot(ax - bx, ay - by) < (b.bbox[2] - b.bbox[0]) * W / 2:
+            if a.label == b.label:
+                return a
+            return Reading(None, 0.0, a.bbox, f"disc says {a.label}, bars say {b.label}")
+        da = math.hypot(ax - W / 2, ay - H / 2)
+        db = math.hypot(bx - W / 2, by - H / 2)
+        return a if da < db else b
+
+    @staticmethod
+    def center(reading, W, H):
+        x1, y1, x2, y2 = reading.bbox
+        return (x1 + x2) / 2 * W, (y1 + y2) / 2 * H
+
+    def off_center(self, reading, W, H):
+        """
+        Drop a reading far from the frame center. The drone hovers over the
+        cup it is scoring; a cup near the edge is a neighbor.
+        """
+        if reading.bbox is None:
+            return reading
+        x, y = self.center(reading, W, H)
+        if math.hypot(x - W / 2, y - H / 2) > self.p.max_center_dist * H / 2:
+            return Reading(None, 0.0, None, "disc off center")
+        return reading
 
     # -- step 1: the disc ------------------------------------------------
     def dark(self, gray):
@@ -206,7 +286,7 @@ class BarCounter:
         return [cv2.minAreaRect(c) for c in contours
                 if cv2.contourArea(c) >= self.p.min_bar_area_fraction * searched]
 
-    def read(self, bgr):
+    def read_disc_first(self, bgr):
         H, W = bgr.shape[:2]
         gray, value = prepare(bgr)
         disc = self.nearest_disc(gray, value)
@@ -258,3 +338,147 @@ class BarCounter:
             spread = float(np.std(widths)) / max(1.0, float(np.mean(widths)))
             conf = max(0.40, min(0.95, 0.95 - spread))
         return Reading(f"bars_{k}", conf, bbox, f"{k} bars, widths {sorted(round(w) for w in widths)}, r {r}px")
+
+    # -- bars first ---------------------------------------------------------
+    def bright_bars(self, gray):
+        """
+        Every bright, thin, filled shape that could be one bar, and the mask
+        of bright pixels it came from.
+
+        Bright means brighter than its own neighborhood by bar_contrast, not
+        brighter than a frame-wide cut-off, so a bar shows up on a black
+        bridge, a gray floor or in shade alike.
+        """
+        g = cv2.GaussianBlur(gray, (3, 3), 0)
+        bright = cv2.adaptiveThreshold(g, 1, cv2.ADAPTIVE_THRESH_MEAN_C, cv2.THRESH_BINARY,
+                                       BAR_BLOCK, -self.p.bar_contrast)
+        # A bar can sit inside a bright shape's hole, as on a black sticker in
+        # a lit clear cup, so take every outer boundary, nested ones too.
+        contours, hierarchy = cv2.findContours(bright, cv2.RETR_CCOMP, cv2.CHAIN_APPROX_SIMPLE)
+        H, W = gray.shape
+        bars = []
+        for c, h in zip(contours, hierarchy[0] if hierarchy is not None else []):
+            if h[3] != -1:
+                continue
+            area = cv2.contourArea(c)
+            if area < 20:
+                continue
+            (x, y), (d1, d2), angle = cv2.minAreaRect(c)
+            length, width = max(d1, d2), max(1.0, min(d1, d2))
+            if (length < BAR_MIN_LENGTH or length / width < BAR_MIN_ASPECT
+                    or length > 0.5 * min(H, W) or area / (d1 * d2 + 1e-6) < BAR_MIN_FILL):
+                continue
+            theta = math.radians(angle if d1 >= d2 else angle + 90)
+            bars.append(Bar(x, y, length, width, theta, c))
+        return bars, bright
+
+    @staticmethod
+    def same_sticker(a, b):
+        """True if two bars sit side by side the way a sticker's bars do."""
+        turn = abs((a.angle - b.angle + math.pi / 2) % math.pi - math.pi / 2)
+        if turn > GROUP_MAX_ANGLE:
+            return False
+        if min(a.length, b.length) / max(a.length, b.length) < GROUP_MIN_LENGTH_RATIO:
+            return False
+        if min(a.width, b.width) / max(a.width, b.width) < GROUP_MIN_WIDTH_RATIO:
+            return False
+        length, width = (a.length + b.length) / 2, (a.width + b.width) / 2
+        ux, uy = math.cos(a.angle), math.sin(a.angle)
+        dx, dy = b.x - a.x, b.y - a.y
+        along, across = abs(dx * ux + dy * uy), abs(-dx * uy + dy * ux)
+        return along <= GROUP_MAX_ALONG * length and \
+            GROUP_ACROSS[0] * width <= across <= GROUP_ACROSS[1] * length
+
+    def bar_groups(self, bars):
+        """Bars joined into stickers: connected groups of same_sticker pairs."""
+        links = {i: [j for j in range(len(bars)) if j != i and self.same_sticker(bars[i], bars[j])]
+                 for i in range(len(bars))}
+        seen, groups = set(), []
+        for i in links:
+            if i in seen:
+                continue
+            stack, group = [i], []
+            seen.add(i)
+            while stack:
+                k = stack.pop()
+                group.append(bars[k])
+                for j in links[k]:
+                    if j not in seen:
+                        seen.add(j)
+                        stack.append(j)
+            groups.append(group)
+        return groups
+
+    def on_dark_ground(self, gray, bright, group):
+        """
+        Where a group sits and how long its bars are, or None if it is not
+        a sticker's bars on a dark disc.
+
+        - A ring just outside the group, still on the disc, is clearly darker
+          than the bars.
+        - Inside that ring there is no other bright shape. A bar the camera
+          blurred into a blob would be one, so the count would be short:
+          abstain instead. So would a white airplane's wings.
+        - A lone bar also needs smooth ground around it. Dirt and grass are
+          textured; a printed disc is not.
+        """
+        cx = float(np.mean([b.x for b in group]))
+        cy = float(np.mean([b.y for b in group]))
+        length = float(np.mean([b.length for b in group]))
+        width = float(np.mean([b.width for b in group]))
+        spread = max(math.hypot(b.x - cx, b.y - cy) for b in group) + width
+        r_in = max(0.55 * length, spread + width)
+        r_out = r_in + GROUND_RING * length
+        H, W = gray.shape
+        if cx - r_out < 0 or cy - r_out < 0 or cx + r_out >= W or cy + r_out >= H:
+            return None
+        center = (int(cx), int(cy))
+        ring = np.zeros(gray.shape, np.uint8)
+        cv2.circle(ring, center, int(r_out), 1, -1)
+        cv2.circle(ring, center, int(r_in), 0, -1)
+        on_bars = np.zeros(gray.shape, np.uint8)
+        cv2.drawContours(on_bars, [b.contour for b in group], -1, 1, -1)
+        bar_level = float(np.median(gray[on_bars > 0]))
+        ground = gray[ring > 0]
+        if bar_level < self.p.min_bar_level or bar_level - np.median(ground) < 60:
+            return None
+        if np.mean(ground < bar_level - self.p.core_gap) < GROUND_DARK:
+            return None
+        inner = np.zeros(gray.shape, np.uint8)
+        cv2.circle(inner, center, int(r_in), 1, -1)
+        near_bars = cv2.dilate(on_bars, np.ones((5, 5), np.uint8))
+        stray = float(((bright > 0) & (inner > 0) & (near_bars == 0)).sum())
+        if stray > self.p.max_stray * np.mean([cv2.contourArea(b.contour) for b in group]):
+            return None
+        if len(group) == 1:
+            close = np.zeros(gray.shape, np.uint8)
+            cv2.circle(close, center, int(0.9 * length), 1, -1)
+            cv2.circle(close, center, int(0.6 * length), 0, -1)
+            if np.std(gray[close > 0]) > self.p.max_ring_std:
+                return None
+        return cx, cy, length
+
+    def read_bars_first(self, bgr):
+        H, W = bgr.shape[:2]
+        gray = cv2.cvtColor(bgr, cv2.COLOR_BGR2GRAY)
+        bars, bright = self.bright_bars(gray)
+        best = None
+        for group in self.bar_groups(bars):
+            if len(group) > 3:
+                continue
+            found = self.on_dark_ground(gray, bright, group)
+            if found is None:
+                continue
+            cx, cy, length = found
+            dist = math.hypot(cx - W / 2, cy - H / 2)
+            if dist > self.p.max_center_dist * H / 2:
+                continue
+            if best is None or dist < best[0]:
+                best = (dist, group, cx, cy, length)
+        if best is None:
+            return Reading(None, 0.0, None, "no bars on dark ground")
+        _, group, cx, cy, r = best
+        k = len(group)
+        bbox = (max(0.0, (cx - r) / W), max(0.0, (cy - r) / H),
+                min(1.0, (cx + r) / W), min(1.0, (cy + r) / H))
+        return Reading(f"bars_{k}", 0.80, bbox, f"{k} bars on dark ground, length {r:.0f}px")

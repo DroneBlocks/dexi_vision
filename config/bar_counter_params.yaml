@@ -13,6 +13,11 @@ bar_counter_node:
     min_solidity: 0.9
     max_bar_width_frac: 0.22
     ink_tolerance: 0.55
+    bar_contrast: 40
+    min_bar_level: 170
+    max_center_dist: 0.7
+    max_stray: 0.3
+    max_ring_std: 16.0
     vote_window: 5
     vote_min: 3
     verbose: false
