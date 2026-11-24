@@ -96,8 +96,10 @@ last 5 answers and only reports when at least 3 of them agree.
 
 ![The vote](images/5_vote.png)
 
-The answer goes out on the ROS topic `/bar_detections` as `bars_1`, `bars_2`,
-`bars_3` or `bars_0`. Your Node-RED flow turns that into an LED color.
+The answer goes out on the ROS topic `/bar_detections` as `bars_1`, `bars_2` or
+`bars_3`. Your Node-RED flow turns that into an LED color. `bars_0` (a blank
+circle) is only published with `publish_bars_0: true`: on the AVR field a
+blackout barrel is also a plain black circle, so by default it stays silent.
 
 ## When it says nothing
 

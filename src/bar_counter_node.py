@@ -9,9 +9,10 @@ other detector:
     1 bar  -> bars_1
     2 bars -> bars_2
     3 bars -> bars_3
-    0 bars -> bars_0   (plain black disc)
+    0 bars -> bars_0   (plain black disc; only with publish_bars_0: true)
 
-Nothing is published when the disc cannot be read (too far, tilted, bars
+bars_0 is off by default: any plain black disc (an AVR blackout barrel or cup)
+reads as 0 bars, which consumers then mistake for a bridge. Nothing is published when the disc cannot be read (too far, tilted, bars
 merged). No message means "not sure", not "no bars".
 
 The node knows nothing about the game. On the AVR 2026 field the discs are the
@@ -43,14 +44,16 @@ class BarCounterNode(Node):
         self.declare_parameter("vote_window", 5)
         self.declare_parameter("vote_min", 3)
         self.declare_parameter("verbose", False)
+        self.declare_parameter("publish_bars_0", False)
 
+        self.publish_bars_0 = self.get_parameter("publish_bars_0").value
         self.counter = BarCounter(Params(**{n: self.get_parameter(n).value for n in tuning}))
         self.freq = self.get_parameter("detection_frequency").value
         self.min_interval = 1.0 / max(0.1, self.freq)
         self.votes = deque(maxlen=self.get_parameter("vote_window").value)
         self.vote_min = self.get_parameter("vote_min").value
         self.verbose = self.get_parameter("verbose").value
-        self.last_t = 0.0
+        self.next_t = 0.0  # time the next frame is due (see cb)
 
         self.pub = self.create_publisher(YoloDetectionArray, "/bar_detections", 10)
         self.create_subscription(CompressedImage, "/cam0/image_raw/compressed", self.cb, 10)
@@ -58,9 +61,15 @@ class BarCounterNode(Node):
 
     def cb(self, msg):
         now = self.get_clock().now().nanoseconds / 1e9
-        if now - self.last_t < self.min_interval:
+        if now < self.next_t:
             return
-        self.last_t = now
+        # Fixed schedule, not "interval since the last frame used": on a throttled input
+        # (a frame every 1/6 s, say) the old rule ran ~7% below detection_frequency.
+        # After a stall, restart the schedule.
+        if now - self.next_t < self.min_interval:
+            self.next_t += self.min_interval
+        else:
+            self.next_t = now + self.min_interval
 
         bgr = cv2.imdecode(np.frombuffer(msg.data, np.uint8), cv2.IMREAD_COLOR)
         if bgr is None:
@@ -74,6 +83,8 @@ class BarCounterNode(Node):
         self.votes.append(reading)
         top, count = Counter(r.label for r in self.votes).most_common(1)[0]
         if top is None or count < self.vote_min:
+            return
+        if top == "bars_0" and not self.publish_bars_0:
             return
         agree = [r for r in self.votes if r.label == top]
 

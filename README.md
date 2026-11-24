@@ -29,7 +29,7 @@ as `/yolo_detections`. `class_name` is one of:
 | `bars_1` | 1 white bar in a black disc |
 | `bars_2` | 2 bars |
 | `bars_3` | 3 bars |
-| `bars_0` | plain black disc |
+| `bars_0` | plain black disc (off by default; set `publish_bars_0: true`) |
 
 Nothing is published when the disc cannot be read (too far, tilted, bars
 merged), so no message means "not sure", not `bars_0`. An answer is only
