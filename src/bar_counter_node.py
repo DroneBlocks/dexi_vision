@@ -9,9 +9,10 @@ other detector:
     1 bar  -> bars_1
     2 bars -> bars_2
     3 bars -> bars_3
-    0 bars -> bars_0   (plain black disc)
+    0 bars -> bars_0   (plain black disc; only with publish_bars_0: true)
 
-Nothing is published when the disc cannot be read (too far, tilted, bars
+bars_0 is off by default: any plain black disc (an AVR blackout barrel or cup)
+reads as 0 bars, which consumers then mistake for a bridge. Nothing is published when the disc cannot be read (too far, tilted, bars
 merged). No message means "not sure", not "no bars".
 
 The node knows nothing about the game. On the AVR 2026 field the discs are the
@@ -43,7 +44,9 @@ class BarCounterNode(Node):
         self.declare_parameter("vote_window", 5)
         self.declare_parameter("vote_min", 3)
         self.declare_parameter("verbose", False)
+        self.declare_parameter("publish_bars_0", False)
 
+        self.publish_bars_0 = self.get_parameter("publish_bars_0").value
         self.counter = BarCounter(Params(**{n: self.get_parameter(n).value for n in tuning}))
         self.freq = self.get_parameter("detection_frequency").value
         self.min_interval = 1.0 / max(0.1, self.freq)
@@ -80,6 +83,8 @@ class BarCounterNode(Node):
         self.votes.append(reading)
         top, count = Counter(r.label for r in self.votes).most_common(1)[0]
         if top is None or count < self.vote_min:
+            return
+        if top == "bars_0" and not self.publish_bars_0:
             return
         agree = [r for r in self.votes if r.label == top]
 

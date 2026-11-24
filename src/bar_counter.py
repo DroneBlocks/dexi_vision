@@ -35,6 +35,7 @@ class Params:
     min_circularity: float = 0.70
     max_circularity: float = 1.05
     min_solidity: float = 0.9
+    max_rect_fill: float = 0.88
     core_gap: int = 50
     min_ink_fraction: float = 0.02
     min_bar_area_fraction: float = 0.004
@@ -135,8 +136,16 @@ class BarCounter:
         # A printed disc is convex, even where a cup wall hides part of it;
         # a ragged patch of shadow or grass is not.
         solidity = m["m00"] / max(1.0, cv2.contourArea(cv2.convexHull(contour)))
+        # Share of the tightest (rotated) rectangle the shape fills: pi/4 = 0.785
+        # for a disc or a tilted disc (ellipse), about 0.95-1.0 for a square or
+        # rectangle at any angle. Rejects dark squares and rectangles that the
+        # circularity bounds let through: an AprilTag's black border, a phone or
+        # tablet screen that is off, a box face.
+        (_, _), (rw, rh), _ = cv2.minAreaRect(contour)
+        rect_fill = m["m00"] / max(1.0, rw * rh)
         ok = (inside_frame
               and solidity >= self.p.min_solidity
+              and rect_fill <= self.p.max_rect_fill
               and SQUARE_BBOX[0] < w / h < SQUARE_BBOX[1]
               and self.p.min_circularity <= circularity <= self.p.max_circularity
               and self.stands_out(value, value[by:by + h, bx:bx + w][filled > 0], cx, cy, r))
